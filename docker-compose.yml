@@ -1,0 +1,104 @@
+services:
+  # ─────────────── PostgreSQL (insights store) ───────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-telecomiq}
+      POSTGRES_USER: ${POSTGRES_USER:-telecomiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telecomiq}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-telecomiq}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────── Kafka (KRaft mode, no Zookeeper) ───────────────
+  kafka:
+    image: bitnami/kafka:3.7
+    environment:
+      KAFKA_CFG_NODE_ID: "0"
+      KAFKA_CFG_PROCESS_ROLES: "controller,broker"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "0@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafkadata:/bitnami/kafka
+
+  # ─────────────── FastAPI (trains models on first boot) ───────────────
+  api:
+    build: .
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TRAIN_ON_BOOT: "1"
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts:/app/artifacts
+      - generated:/app/data/generated
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─────────────── Streamlit dashboard ───────────────
+  dashboard:
+    build: .
+    env_file: .env
+    environment:
+      API_BASE_URL: http://api:8000
+      DATA_DIR: /app/data/generated
+      WAIT_FOR: /app/data/generated/customers.csv
+    command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - artifacts:/app/artifacts
+      - generated:/app/data/generated
+    depends_on:
+      - api
+
+  # ─────────────── CDR stream producer (real-time feed) ───────────────
+  producer:
+    build: .
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WAIT_FOR: /app/data/generated/cdrs.csv
+    command: ["python", "-m", "pipeline.producer", "--rate", "20"]
+    volumes:
+      - generated:/app/data/generated
+    depends_on:
+      - kafka
+      - api
+
+  # ─────────────── Real-time fraud consumer ───────────────
+  fraud-consumer:
+    build: .
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WAIT_FOR: /app/artifacts/fraud_model.joblib
+    command: ["python", "-m", "pipeline.consumer"]
+    volumes:
+      - artifacts:/app/artifacts
+    depends_on:
+      - kafka
+      - api
+
+volumes:
+  pgdata:
+  kafkadata:
+  artifacts:
+  generated:

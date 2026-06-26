@@ -1,0 +1,9 @@
+# Full local stack: everything in requirements.txt PLUS the heavy deep-learning
+# and Spark deps. Use this locally to run the PyTorch autoencoder (Module 3) and
+# the Spark Structured Streaming consumer.
+#
+#   pip install -r requirements-full.txt
+#
+-r requirements.txt
+torch==2.4.1
+pyspark==3.5.2

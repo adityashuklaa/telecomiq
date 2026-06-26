@@ -1,0 +1,35 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Generated data & model artifacts
+data/generated/
+artifacts/
+*.joblib
+*.pt
+*.pkl
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Spark / Kafka local state
+spark-warehouse/
+metastore_db/
+derby.log
